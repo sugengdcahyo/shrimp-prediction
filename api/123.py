@@ -1,5 +1,7 @@
+from .mlp import MLP
 from utils.typeFormatter import formatter
-from flask import Flask, request
+from flask import Flask
+from flask_restful import request
 import pandas as pd
 import os
 
@@ -37,6 +39,7 @@ def ResourceADGCalculate():
         "unit": "percent"
     }
 
+
 @app.route('/api/sr-calculate', methods=['POST'])
 def SRCalculate():
     # SR = (n_akhir - n_awal) * 100
@@ -45,14 +48,29 @@ def SRCalculate():
         "result": result
     }
 
-@app.route('/api/predict', methods=['GET'])
+
+# Fungsi untuk evaluasi ekspresi dari string
+def evaluate_expression(expr, values):
+    # Pisahkan elemen-elemen dalam key
+    elements = expr.split()
+    # Jika key mengandung '^2'
+    if '^2' in expr:
+        base = expr.replace('^2', '')
+        return values[base] * values[base]
+    # Jika key mengandung perkalian dua elemen
+    elif len(elements) == 2:
+        return values[elements[0]] * values[elements[1]]
+    # Jika key adalah elemen tunggal
+    else:
+        return values[expr]
+
+
+
+@app.route('/api/predict', methods=['POST'])
 def predict():
-
-    result = {
-        "predict": [x for x in range(100)]
-    }
-
-    return result
+    features = request.get_json()
+    
+    return features
 
 
 if __name__=='__main__':

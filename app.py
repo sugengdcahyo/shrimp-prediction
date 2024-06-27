@@ -1,58 +1,109 @@
+from api.mlp import MLP
 from utils.typeFormatter import formatter
 from flask import Flask, request
+
+import numpy as np
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+import pickle
 import pandas as pd
 import os
+import json
 
 
 app = Flask(__name__)
 
 
-@app.route('/api/adg-calculate', methods=['GET'])
-def ResourceADGCalculate():
-    # ADG = (berat_akhir - berat_awal) / n_cycle * 100
-    cycle_id = request.args.get('cycle_id', None)
-    if not cycle_id:
-        return {"error": "No Cycle ID"}, 400
+# Fungsi untuk evaluasi ekspresi dari string
+def evaluate_expression(expr, values):
+    # Pisahkan elemen-elemen dalam key
+    elements = expr.split()
+    # Jika key mengandung '^2'
+    if '^2' in expr:
+        base = expr.replace('^2', '')
+        return values[base] * values[base]
+    # Jika key mengandung perkalian dua elemen
+    elif len(elements) == 2:
+        return values[elements[0]] * values[elements[1]]
+    # Jika key adalah elemen tunggal
+    else:
+        return values[expr]
 
-    try:
-        cycle_id = formatter(cycle_id)
-    except BaseException as e:
-        return {"error": str(e)}
 
-    df = pd.read_csv(f"{os.getcwd()}/datasets/samplings.csv")
-    df = df.sort_values('sampled_at')
-    df['sampled_at'] = pd.to_datetime(df['sampled_at'])
+# Fungsi untuk normalisasi Min-Max
+def min_max_normalize(value, min_value, max_value):
+    return (value - min_value) / (max_value - min_value)
 
-    sample = df[df['cycle_id'] == cycle_id]
-    if sample.empty:
-        return {"message": "Cycle ID not found"}, 404
 
-    w_diff = sample['average_weight'].diff()
-    d_diff = sample['sampled_at'].diff().dt.days
+def normalized_values(data):
+    with open('./min_max_values.json', 'r') as file:
+        min_max_json = json.load(file)
+    
+    # Lakukan normalisasi pada setiap item dalam data_to_normalize
+    normalized_data = {}
+    for key, value in data.items():
 
-    adg = w_diff / d_diff
+        min_value = min_max_json["min"][key]
+        max_value = min_max_json["max"][key]
+        normalized_data[key] = min_max_normalize(value, min_value, max_value)
 
-    return {
-        "result": round(adg.mean(), 2) * 100,
-        "unit": "percent"
-    }
+    return normalized_data
 
-@app.route('/api/sr-calculate', methods=['POST'])
-def SRCalculate():
-    # SR = (n_akhir - n_awal) * 100
-    result = .4
-    return {
-        "result": result
-    }
 
-@app.route('/api/predict', methods=['GET'])
+def denorm(data):
+    with open('./min_max_values.json', 'r') as file:
+        min_max = json.load(file)
+    min_ = min_max['min']['average_adg']
+    max_ = min_max['max']['average_adg']
+
+    return data * (max_ - min_) + min_
+
+
+@app.route('/api/predict', methods=['POST'])
 def predict():
+    features = request.get_json()
 
-    result = {
-        "predict": [x for x in range(100)]
+    with open('./feature_store/mi_features.json', 'r') as file:
+        mi_features = json.load(file)
+
+    result_dict = {key: evaluate_expression(key, features) for key in mi_features}
+    result_dict_norm = normalized_values(result_dict)
+
+    input_x = list(result_dict_norm.values())
+
+    class MLP(nn.Module):
+        def __init__(self, input_size, hidden_size, output_size):
+            super(MLP, self).__init__()
+            self.fc1 = nn.Linear(input_size, hidden_size)
+            self.fc2 = nn.Linear(hidden_size, output_size)
+
+        def forward(self, x):
+            x = torch.relu(self.fc1(x))
+            x = self.fc2(x)
+            return x
+
+    # Muat model menggunakan pickle
+    # with open('base_model.pkl', 'rb') as file:
+    #     loaded_model = pickle.load(file)
+
+    # loaded_model.eval()
+
+    # Muat model menggunakan torch.load
+    model = MLP(36, 64, 1)
+    model.load_state_dict(torch.load('base_model.pth'))
+    model.eval()
+
+    with torch.no_grad():
+        input_tensor = torch.tensor([input_x], dtype=torch.float32)
+        predict_normalized = model(input_tensor)
+
+    # return predict_normalized.numpy()
+    return {
+        "value": denorm(predict_normalized.numpy()[0][0])
     }
-
-    return result
 
 
 if __name__=='__main__':
