@@ -74,23 +74,6 @@ def predict():
 
     input_x = list(result_dict_norm.values())
 
-    class MLP(nn.Module):
-        def __init__(self, input_size, hidden_size, output_size):
-            super(MLP, self).__init__()
-            self.fc1 = nn.Linear(input_size, hidden_size)
-            self.fc2 = nn.Linear(hidden_size, output_size)
-
-        def forward(self, x):
-            x = torch.relu(self.fc1(x))
-            x = self.fc2(x)
-            return x
-
-    # Muat model menggunakan pickle
-    # with open('base_model.pkl', 'rb') as file:
-    #     loaded_model = pickle.load(file)
-
-    # loaded_model.eval()
-
     # Muat model menggunakan torch.load
     model = MLP(36, 64, 1)
     model.load_state_dict(torch.load('base_model.pth'))
@@ -103,6 +86,7 @@ def predict():
     # return predict_normalized.numpy()
     return {
         "value": denorm(predict_normalized.numpy()[0][0])
+        # "value": str(predict_normalized.numpy()[0][0])
     }
 
 
